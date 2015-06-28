@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// #define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 #include "VirtualDisplaySurface.h"
 #include "HWComposer.h"
 
@@ -363,6 +363,15 @@ status_t VirtualDisplaySurface::dequeueBuffer(int* pslot, sp<Fence>* fence, bool
     return result;
 }
 
+status_t VirtualDisplaySurface::detachBuffer(int slot) {
+    return mSource[SOURCE_SINK]->detachBuffer(slot);
+}
+
+status_t VirtualDisplaySurface::attachBuffer(int* outSlot,
+        const sp<GraphicBuffer>& buffer) {
+    return mSource[SOURCE_SINK]->attachBuffer(outSlot, buffer);
+}
+
 status_t VirtualDisplaySurface::queueBuffer(int pslot,
         const QueueBufferInput& input, QueueBufferOutput* output) {
     VDS_LOGW_IF(mDbgState != DBG_STATE_GLES,
@@ -452,6 +461,12 @@ status_t VirtualDisplaySurface::setBuffersSize(int size) {
    return mSource[SOURCE_SINK]->setBuffersSize(size);
 }
 #endif
+
+void VirtualDisplaySurface::allocateBuffers(bool /* async */,
+        uint32_t /* width */, uint32_t /* height */, uint32_t /* format */,
+        uint32_t /* usage */) {
+    // TODO: Should we actually allocate buffers for a virtual display?
+}
 
 void VirtualDisplaySurface::updateQueueBufferOutput(
         const QueueBufferOutput& qbo) {

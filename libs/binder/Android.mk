@@ -60,29 +60,33 @@ endif
 LOCAL_C_INCLUDES += hardware/samsung_slsi/$(PLATFORM_DIR)/include
 endif
 
-LOCAL_LDLIBS += -lpthread
+include $(CLEAR_VARS)
 LOCAL_MODULE := libbinder
-LOCAL_SHARED_LIBRARIES += liblog libcutils libutils
+LOCAL_SHARED_LIBRARIES := liblog libcutils libutils
 LOCAL_SRC_FILES := $(sources)
-
+ifneq ($(TARGET_USES_64_BIT_BINDER),true)
+ifneq ($(TARGET_IS_64_BIT),true)
+LOCAL_CFLAGS += -DBINDER_IPC_32BIT=1
+endif
+endif
+ifeq ($(strip $(MRVL_ION)), true)
+    LOCAL_CFLAGS += -DUSE_ION
+endif
+LOCAL_CFLAGS += -Werror
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-
-ifeq ($(BOARD_NEEDS_MEMORYHEAPION),true)
-LOCAL_SHARED_LIBRARIES += libion_exynos
-LOCAL_CFLAGS += -DUSE_MEMORY_HEAP_ION
-ifneq ($(TARGET_SLSI_VARIANT),)
-PLATFORM_DIR := $(TARGET_BOARD_PLATFORM)-$(TARGET_SLSI_VARIANT)
-else
-PLATFORM_DIR := $(TARGET_BOARD_PLATFORM)
-endif
-LOCAL_C_INCLUDES += hardware/samsung_slsi/$(PLATFORM_DIR)/include
-endif
-
-LOCAL_LDLIBS += -lpthread
 LOCAL_MODULE := libbinder
 LOCAL_STATIC_LIBRARIES += libutils
 LOCAL_SRC_FILES := $(sources)
-
+ifneq ($(TARGET_USES_64_BIT_BINDER),true)
+ifneq ($(TARGET_IS_64_BIT),true)
+LOCAL_CFLAGS += -DBINDER_IPC_32BIT=1
+endif
+endif
+ifeq ($(strip $(MRVL_ION)), true)
+    LOCAL_CFLAGS += -DUSE_ION
+endif
+LOCAL_CFLAGS += -Werror
 include $(BUILD_STATIC_LIBRARY)
+

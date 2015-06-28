@@ -98,6 +98,8 @@ private:
     virtual status_t setBufferCount(int bufferCount);
     virtual status_t dequeueBuffer(int* pslot, sp<Fence>* fence, bool async,
             uint32_t w, uint32_t h, uint32_t format, uint32_t usage);
+    virtual status_t detachBuffer(int slot);
+    virtual status_t attachBuffer(int* slot, const sp<GraphicBuffer>& buffer);
     virtual status_t queueBuffer(int pslot,
             const QueueBufferInput& input, QueueBufferOutput* output);
     virtual void cancelBuffer(int pslot, const sp<Fence>& fence);
@@ -105,6 +107,8 @@ private:
     virtual status_t connect(const sp<IBinder>& token,
             int api, bool producerControlledByApp, QueueBufferOutput* output);
     virtual status_t disconnect(int api);
+    virtual void allocateBuffers(bool async, uint32_t width, uint32_t height,
+            uint32_t format, uint32_t usage);
 #ifdef QCOM_HARDWARE
     virtual status_t setBuffersSize(int size);
 #endif
