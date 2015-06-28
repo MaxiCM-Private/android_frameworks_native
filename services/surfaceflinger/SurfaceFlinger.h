@@ -41,6 +41,7 @@
 
 #include <gui/ISurfaceComposer.h>
 #include <gui/ISurfaceComposerClient.h>
+#include <gui/BufferQueue.h>
 
 #include <hardware/hwcomposer_defs.h>
 
@@ -154,7 +155,6 @@ private:
     /* ------------------------------------------------------------------------
      * Internal data structures
      */
-    Rect mSwapDirtyRect;
 
     class LayerVector : public SortedVector< sp<Layer> > {
     public:
@@ -261,6 +261,14 @@ private:
     // Read virtual display properties
     void setVirtualDisplayData( int32_t hwcDisplayId,
                                 const sp<IGraphicBufferProducer>& sink);
+
+    // Configure Virtual Display parameters such as the display surface
+    // and the buffer queue
+    void configureVirtualDisplay(int32_t &hwcDisplayId,
+            sp<DisplaySurface> &dispSurface,
+            sp<IGraphicBufferProducer> &producer,
+            const DisplayDeviceState state,
+            sp<BufferQueue> bq);
 
     /* handlePageFilp: this is were we latch a new buffer
      * if available and compute the dirty region.
@@ -402,7 +410,6 @@ private:
 
     void postFramebuffer();
     void drawWormhole(const sp<const DisplayDevice>& hw, const Region& region) const;
-    void setupSwapRect();
 
     /* ------------------------------------------------------------------------
      * Display management
@@ -487,8 +494,23 @@ private:
     nsecs_t mLastTransactionTime;
     bool mBootFinished;
     bool mUseDithering;
-    int mSwapRectEnable;
 
+    // Set if the Gpu Tile render DR optimization enabled
+    bool mGpuTileRenderEnable;
+    bool mCanUseGpuTileRender;
+    Rect mUnionDirtyRect;
+
+#ifdef QCOM_BSP
+    // Set up the DirtyRect/flags for GPU Comp optimization if required.
+    void setUpTiledDr();
+    // Find out if GPU composition can use Dirtyregion optimization
+    // Get the union dirty rect to operate
+    bool computeTiledDr(const sp<const DisplayDevice>& hw);
+    enum {
+       GL_PRESERVE_NONE = 0,
+       GL_PRESERVE      = 1
+    };
+#endif
 
     // these are thread safe
     mutable MessageQueue mEventQueue;

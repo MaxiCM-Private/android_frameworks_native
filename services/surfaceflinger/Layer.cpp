@@ -83,13 +83,12 @@ Layer::Layer(SurfaceFlinger* flinger, const sp<Client>& client,
         mProtectedByApp(false),
         mHasSurface(false),
         mClientRef(client),
-        mDirtyRectRepeatCount(0)
+        mTransformHint(0)
 {
     mCurrentCrop.makeInvalid();
     mFlinger->getRenderEngine().genTextures(1, &mTextureName);
     mTexture.init(Texture::TEXTURE_EXTERNAL, mTextureName);
-    Rect x(0,0,0,0);
-    mSwapDirtyRect.set(x);
+
     uint32_t layerFlags = 0;
     if (flags & ISurfaceComposerClient::eHidden)
         layerFlags = layer_state_t::eLayerHidden;
@@ -268,7 +267,9 @@ static Rect reduce(const Rect& win, const Region& exclude) {
     if (CC_LIKELY(exclude.isEmpty())) {
         return win;
     }
-    if (exclude.isRect()) {
+    Rect tmp;
+    win.intersect(exclude.getBounds(), &tmp);
+    if (exclude.isRect() && !tmp.isEmpty()) {
         return win.reduce(exclude.getBounds());
     }
     return Region(win).subtract(exclude).getBounds();
@@ -349,6 +350,37 @@ FloatRect Layer::computeCrop(const sp<const DisplayDevice>& hw) const {
     return crop;
 }
 
+Transform Layer::computeBufferTransform(const sp<const DisplayDevice>& hw)
+{
+    const State& s(getDrawingState());
+    const Transform& tr(hw->getTransform());
+    /*
+     * Transformations are applied in this order:
+     * 1) buffer orientation/flip/mirror
+     * 2) state transformation (window manager)
+     * 3) layer orientation (screen orientation)
+     * (NOTE: the matrices are multiplied in reverse order)
+     */
+
+    const Transform bufferOrientation(mCurrentTransform);
+    Transform transform(tr * s.transform * bufferOrientation);
+
+    if (mSurfaceFlingerConsumer->getTransformToDisplayInverse()) {
+        /*
+         * the code below applies the display's inverse transform to the buffer
+         */
+        uint32_t invTransform = hw->getOrientationTransform();
+        // calculate the inverse transform
+        if (invTransform & NATIVE_WINDOW_TRANSFORM_ROT_90) {
+            invTransform ^= NATIVE_WINDOW_TRANSFORM_FLIP_V |
+                    NATIVE_WINDOW_TRANSFORM_FLIP_H;
+        }
+        // and apply to the current transform
+        transform = transform * Transform(invTransform);
+    }
+    return transform;
+}
+
 void Layer::setGeometry(
     const sp<const DisplayDevice>& hw,
         HWComposer::HWCLayerInterface& layer)
@@ -374,6 +406,22 @@ void Layer::setGeometry(
     // here we're guaranteed that the layer's transform preserves rects
     Rect frame(s.transform.transform(computeBounds()));
     frame.intersect(hw->getViewport(), &frame);
+
+    //map frame(displayFrame) to sourceCrop
+    frame = s.transform.inverse().transform(frame);
+
+    // make sure sourceCrop with in the window's bounds
+    frame.intersect(Rect(s.active.w, s.active.h), &frame);
+
+    // subtract the transparent region and snap to the bounds
+    frame = reduce(frame, s.activeTransparentRegion);
+
+    //remap frame to displayFrame
+    frame = s.transform.transform(frame);
+
+    // make sure frame(displayFrame) with in viewframe
+    frame.intersect(hw->getViewport(), &frame);
+
     const Transform& tr(hw->getTransform());
     layer.setFrame(tr.transform(frame));
 #ifdef QCOM_BSP
@@ -388,30 +436,7 @@ void Layer::setGeometry(
     layer.setCrop(computeCrop(hw));
     layer.setPlaneAlpha(s.alpha);
 
-    /*
-     * Transformations are applied in this order:
-     * 1) buffer orientation/flip/mirror
-     * 2) state transformation (window manager)
-     * 3) layer orientation (screen orientation)
-     * (NOTE: the matrices are multiplied in reverse order)
-     */
-
-    const Transform bufferOrientation(mCurrentTransform);
-    Transform transform(tr * s.transform * bufferOrientation);
-
-    if (mSurfaceFlingerConsumer->getTransformToDisplayInverse()) {
-        /*
-         * the code below applies the display's inverse transform to the buffer
-         */
-        uint32_t invTransform = hw->getOrientationTransform();
-        // calculate the inverse transform
-        if (invTransform & NATIVE_WINDOW_TRANSFORM_ROT_90) {
-            invTransform ^= NATIVE_WINDOW_TRANSFORM_FLIP_V |
-                    NATIVE_WINDOW_TRANSFORM_FLIP_H;
-        }
-        // and apply to the current transform
-        transform = transform * Transform(invTransform);
-    }
+    Transform transform = computeBufferTransform(hw);
 
     // this gives us only the "orientation" component of the transform
     const uint32_t orientation = transform.getOrientation();
@@ -423,6 +448,8 @@ void Layer::setGeometry(
     }
 }
 
+
+
 void Layer::setPerFrameData(const sp<const DisplayDevice>& hw,
         HWComposer::HWCLayerInterface& layer) {
     // we have to set the visible region on every frame because
@@ -433,6 +460,54 @@ void Layer::setPerFrameData(const sp<const DisplayDevice>& hw,
     const Transform& tr = hw->getTransform();
     Region visible = tr.transform(visibleRegion.intersect(hw->getViewport()));
     layer.setVisibleRegionScreen(visible);
+
+#ifdef QCOM_BSP
+    Rect dirtyRect =  mSurfaceFlingerConsumer->getCurrentDirtyRect();
+    int bufferOrientation = computeBufferTransform(hw).getOrientation();
+    if((mActiveBuffer != NULL) && mTransformHint && !bufferOrientation &&
+       (mTransformHint != NATIVE_WINDOW_TRANSFORM_FLIP_H) &&
+       (mTransformHint != NATIVE_WINDOW_TRANSFORM_FLIP_V)) {
+        /* DirtyRect is generated by HWR without any knowledge of GPU
+         * pre-rotation. In case of pre-rotation, dirtyRect needs to be rotated
+         * accordingly.
+         *
+         * TODO: Generate and update dirtyRect from EGL and remove this code.
+         */
+
+        Rect srcRect = mActiveBuffer->getBounds();
+        Rect tempDR = dirtyRect;
+        int srcW = srcRect.getWidth();
+        int srcH = srcRect.getHeight();
+
+        if(mTransformHint & NATIVE_WINDOW_TRANSFORM_ROT_90) {
+            swap(srcW, srcH);
+        }
+
+        int setOffsetW = -srcW/2;
+        int setOffsetH = -srcH/2;
+
+        int resetOffsetW = srcW/2;
+        int resetOffsetH = srcH/2;
+
+        if(mTransformHint & NATIVE_WINDOW_TRANSFORM_ROT_90) {
+            swap(resetOffsetW, resetOffsetH);
+        }
+
+        /* - Move 2D space origin to srcRect origin.
+         * - Rotate
+         * - Move back the origin
+         */
+        Transform setOrigin;
+        setOrigin.set(setOffsetW, setOffsetH);
+        tempDR = setOrigin.transform(tempDR);
+        Transform rotate(mTransformHint);
+        tempDR = rotate.transform(tempDR);
+        Transform resetOrigin;
+        resetOrigin.set(resetOffsetW, resetOffsetH);
+        dirtyRect = resetOrigin.transform(tempDR);
+    }
+    layer.setDirtyRect(dirtyRect);
+#endif
 
     // NOTE: buffer can be NULL if the client never drew into this
     // layer yet, or if we ran out of memory
@@ -513,7 +588,7 @@ void Layer::onDraw(const sp<const DisplayDevice>& hw, const Region& clip) const
     }
 
     bool canAllowGPU = false;
-#ifdef QCOM_BSP
+#if defined(QCOM_BSP) || defined(MTK_HARDWARE)
     if(isProtected()) {
         char property[PROPERTY_VALUE_MAX];
         if ((property_get("persist.gralloc.cp.level3", property, NULL) > 0) &&
@@ -1168,75 +1243,8 @@ Region Layer::latchBuffer(bool& recomputeVisibleRegions)
 
         // transform the dirty region to window-manager space
         outDirtyRegion = (s.transform.transform(dirtyRegion));
-        Rect dirtyRect;
-        mSurfaceFlingerConsumer->getDirtyRegion(dirtyRect);
-        if (dirtyRect == mSwapDirtyRect) {
-            mDirtyRectRepeatCount++;
-        } else {
-            mDirtyRectRepeatCount=0;
-            mSwapDirtyRect = dirtyRect;
-        }
-
-    } else {
-        if (mSwapDirtyRect.isEmpty()) {
-            mDirtyRectRepeatCount++;
-        } else {
-            mDirtyRectRepeatCount=0;
-            mSwapDirtyRect.clear();
-        }
-   }
+    }
     return outDirtyRegion;
-}
-
-bool Layer::canUseSwapRect(Region& consolidateVisibleRegion,
-                                             Rect& dirtyRect,
-                           const sp<const DisplayDevice>& hw ) const {
-    //Disable SwapRect for non-RGB layers
-#ifdef QCOM_BSP
-    const sp<GraphicBuffer>& activeBuffer(mActiveBuffer);
-    if(activeBuffer != 0) {
-        ANativeWindowBuffer* buffer = activeBuffer->getNativeBuffer();
-        if(buffer) {
-            private_handle_t* hnd = static_cast<private_handle_t*>
-                              (const_cast<native_handle_t*>(buffer->handle));
-            //if BUFFER_TYPE_VIDEO, its YUV
-             if (hnd && (hnd->bufferType == BUFFER_TYPE_VIDEO))
-                 return  false;
-        }
-    }
-#endif
-    //Enable SwapRect only if all the buffers for this
-    //Layer contains same DirtyRect
-    if (mDirtyRectRepeatCount <= BufferQueue::MIN_UNDEQUEUED_BUFFERS) {
-        return false;
-    }
-    //If there are any overlapping visible regions, disable SwapRect
-    if (!consolidateVisibleRegion.intersect(visibleRegion).isEmpty()) {
-        return false;
-    }
-    consolidateVisibleRegion.orSelf(visibleRegion);
-    //Disable SwapRect if the source crop and destination crop are
-    //same
-    const State& s(getDrawingState());
-    Rect frame(s.transform.transform(computeBounds()));
-    frame.intersect(hw->getViewport(), &frame);
-    const Transform& tr(hw->getTransform());
-    frame = tr.transform(frame);
-    FloatRect displayCrop(frame);
-    FloatRect sourceCrop(computeCrop(hw));
-    if ((displayCrop.left   != sourceCrop.left)  ||
-        (displayCrop.top    != sourceCrop.top)   ||
-        (displayCrop.right  != sourceCrop.right) ||
-        (displayCrop.bottom != sourceCrop.bottom) ){
-         return false;
-    }
-    dirtyRect = mSwapDirtyRect;
-    return true;
-}
-
-void Layer::resetSwapRect() {
-       mDirtyRectRepeatCount = 0;
-       mSwapDirtyRect.clear();
 }
 
 uint32_t Layer::getEffectiveUsage(uint32_t usage) const
@@ -1250,7 +1258,7 @@ uint32_t Layer::getEffectiveUsage(uint32_t usage) const
     return usage;
 }
 
-void Layer::updateTransformHint(const sp<const DisplayDevice>& hw) const {
+void Layer::updateTransformHint(const sp<const DisplayDevice>& hw) {
     uint32_t orientation = 0;
     if (!mFlinger->mDebugDisableTransformHint) {
         // The transform hint is used to improve performance, but we can
@@ -1263,6 +1271,7 @@ void Layer::updateTransformHint(const sp<const DisplayDevice>& hw) const {
         }
     }
     mSurfaceFlingerConsumer->setTransformHint(orientation);
+    mTransformHint = orientation;
 }
 
 // ----------------------------------------------------------------------------
@@ -1375,6 +1384,12 @@ bool Layer::isSecureDisplay() const
     return false;
 }
 
+#endif
+
+#ifdef QCOM_BSP
+bool Layer::hasNewFrame() const {
+   return (mQueuedFrames > 0);
+}
 #endif
 // ---------------------------------------------------------------------------
 }; // namespace android

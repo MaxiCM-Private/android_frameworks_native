@@ -32,6 +32,8 @@
 #include <utils/Timers.h>
 #include <utils/Vector.h>
 
+#define MAX_LAYER_COUNT 32
+
 extern "C" int clock_nanosleep(clockid_t clock_id, int flags,
                            const struct timespec *request,
                            struct timespec *remain);
@@ -108,8 +110,6 @@ public:
     // create a work list for numLayers layer. sets HWC_GEOMETRY_CHANGED.
     status_t createWorkList(int32_t id, size_t numLayers);
 
-    void setSwapRect(Rect);
-
     bool supportsFramebufferTarget() const;
 
     // does this display have layers handled by HWC
@@ -118,9 +118,20 @@ public:
     // does this display have layers handled by GLES
     bool hasGlesComposition(int32_t id) const;
 
+#ifdef QCOM_BSP
+    // does this display have layers handled by BLIT HW
+    bool hasBlitComposition(int32_t id) const;
+
+    //GPUTiledRect : function to find out if DR can be used in GPU Comp.
+    bool canUseTiledDR(int32_t id, Rect& dr);
+#endif
+
     // get the releaseFence file descriptor for a display's framebuffer layer.
     // the release fence is only valid after commit()
     sp<Fence> getAndResetReleaseFence(int32_t id);
+
+    // is VDS solution enabled
+    inline bool isVDSEnabled() const { return mVDSEnabled; };
 
     // needed forward declarations
     class LayerListIterator;
@@ -167,6 +178,9 @@ public:
         virtual void setFrame(const Rect& frame) = 0;
         virtual void setCrop(const FloatRect& crop) = 0;
         virtual void setVisibleRegionScreen(const Region& reg) = 0;
+#ifdef QCOM_BSP
+        virtual void setDirtyRect(const Rect& dirtyRect) = 0;
+#endif
         virtual void setBuffer(const sp<GraphicBuffer>& buffer) = 0;
         virtual void setAcquireFenceFd(int fenceFd) = 0;
         virtual void setPlaneAlpha(uint8_t alpha) = 0;
@@ -261,6 +275,7 @@ public:
     float getDpiY(int disp) const;
     bool isConnected(int disp) const;
 
+    void setEglSurface(int disp, void* dpy, void* surface);
     status_t setVirtualDisplayProperties(int32_t id, uint32_t w, uint32_t h,
             uint32_t format);
 
@@ -317,10 +332,14 @@ private:
         uint32_t format;    // pixel format from FB hal, for pre-hwc-1.1
         float xdpi;
         float ydpi;
+	uint32_t format;
         nsecs_t refresh;
         bool connected;
         bool hasFbComp;
         bool hasOvComp;
+#ifdef QCOM_BSP
+        bool hasBlitComp;
+#endif
         size_t capacity;
         hwc_display_contents_1* list;
         hwc_layer_1* framebufferTarget;
@@ -350,13 +369,62 @@ private:
     sp<VSyncThread>                 mVSyncThread;
     bool                            mDebugForceFakeVSync;
     BitSet32                        mAllocatedDisplayIDs;
+    bool                            mVDSEnabled;
 
     // protected by mLock
     mutable Mutex mLock;
+    // synchronization between Draw call and Dumpsys call
+    mutable Mutex mDrawLock;
     mutable nsecs_t mLastHwVSync[HWC_NUM_PHYSICAL_DISPLAY_TYPES];
 
     // thread-safe
     mutable Mutex mEventControlLock;
+
+    //GPUTileRect : CompMap, class to track the composition type of layers
+    struct CompMap {
+        int32_t count;
+        int32_t compType[MAX_LAYER_COUNT];
+        CompMap () {
+            reset();
+        }
+        void reset () {
+            count=0;
+            for(size_t i= 0; i <MAX_LAYER_COUNT; i++) {
+                compType[i] = -1;
+            }
+        }
+        CompMap& operator=(const CompMap &rhs) {
+            if(this != &rhs) {
+                reset();
+                count = rhs.count;
+                for(int32_t i=0; i<count; i++) {
+                    compType[i] = rhs.compType[i];
+                }
+            }
+            return *this;
+        }
+        bool operator== (CompMap &rhs) {
+            if( count != rhs.count)
+                return false;
+            for(int32_t i=0; i<count; i++) {
+                if(compType[i] != rhs.compType[i])
+                    return false;
+            }
+            return true;
+        }
+    };
+
+#ifdef QCOM_BSP
+    //GPUTileRect Optimization Functions.
+    CompMap prev_comp_map[MAX_HWC_DISPLAYS], current_comp_map[MAX_HWC_DISPLAYS];
+    bool isCompositionMapChanged(int32_t id);
+    bool isGeometryChanged(int32_t id);
+    void computeUnionDirtyRect(int32_t id, Rect& unionDirtyRect);
+    bool areVisibleRegionsOverlapping(int32_t id );
+    bool needsScaling(int32_t id);
+    float mDynThreshold;
+    bool canHandleOverlapArea(int32_t id, Rect unionDr);
+#endif
 };
 
 // ---------------------------------------------------------------------------

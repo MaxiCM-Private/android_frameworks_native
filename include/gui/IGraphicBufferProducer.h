@@ -58,12 +58,6 @@ public:
         RELEASE_ALL_BUFFERS       = 0x2,
     };
 
-    // updateDirtyRegion gets called from hardware renderer when there
-    // is a change in the dirty rect for a layer. It sets the dirty
-    // rect for corresponding layer buffer.
-    virtual status_t updateDirtyRegion(int bufferidx, int l, int t,
-                                       int r, int b) = 0;
-
     // requestBuffer requests a new buffer for the given index. The server (i.e.
     // the IGraphicBufferProducer implementation) assigns the newly created
     // buffer to the given slot index, and the client is expected to mirror the
@@ -96,6 +90,11 @@ public:
     virtual status_t dequeueBuffer(int *slot, sp<Fence>* fence, bool async,
             uint32_t w, uint32_t h, uint32_t format, uint32_t usage) = 0;
 
+    virtual status_t detachBuffer(int slot) = 0;
+
+    virtual status_t attachBuffer(int* outSlot,
+            const sp<GraphicBuffer>& buffer) = 0;
+
     // queueBuffer indicates that the client has finished filling in the
     // contents of the buffer associated with slot and transfers ownership of
     // that slot back to the server. It is not valid to call queueBuffer on a
@@ -118,14 +117,44 @@ public:
                 const Rect& crop, int scalingMode, uint32_t transform, bool async,
                 const sp<Fence>& fence)
         : timestamp(timestamp), isAutoTimestamp(isAutoTimestamp), crop(crop),
-          scalingMode(scalingMode), transform(transform), async(async),
-          fence(fence) { }
+#ifdef QCOM_BSP
+        dirtyRect(crop),
+#endif
+        scalingMode(scalingMode), transform(transform),
+        async(async), fence(fence) { }
+#ifdef QCOM_BSP
+        inline QueueBufferInput(int64_t timestamp, bool isAutoTimestamp,
+                const Rect& crop, const Rect& dirtyRect, int scalingMode,
+                uint32_t transform, bool async, const sp<Fence>& fence)
+        : timestamp(timestamp), isAutoTimestamp(isAutoTimestamp), crop(crop),
+        dirtyRect(dirtyRect), scalingMode(scalingMode), transform(transform),
+        async(async), fence(fence) { }
         inline void deflate(int64_t* outTimestamp, bool* outIsAutoTimestamp,
-                Rect* outCrop, int* outScalingMode, uint32_t* outTransform,
-                bool* outAsync, sp<Fence>* outFence) const {
+                            Rect* outCrop, int* outScalingMode,
+                            uint32_t* outTransform,  bool* outAsync,
+                            sp<Fence>* outFence) const {
             *outTimestamp = timestamp;
             *outIsAutoTimestamp = bool(isAutoTimestamp);
             *outCrop = crop;
+            *outScalingMode = scalingMode;
+            *outTransform = transform;
+            *outAsync = bool(async);
+            *outFence = fence;
+        }
+#endif
+        inline void deflate(int64_t* outTimestamp, bool* outIsAutoTimestamp,
+                            Rect* outCrop,
+#ifdef QCOM_BSP
+                            Rect* outDirtyRect,
+#endif
+                            int* outScalingMode, uint32_t* outTransform,
+                            bool* outAsync, sp<Fence>* outFence) const {
+            *outTimestamp = timestamp;
+            *outIsAutoTimestamp = bool(isAutoTimestamp);
+            *outCrop = crop;
+#ifdef QCOM_BSP
+            *outDirtyRect = dirtyRect;
+#endif
             *outScalingMode = scalingMode;
             *outTransform = transform;
             *outAsync = bool(async);
@@ -142,6 +171,9 @@ public:
         int64_t timestamp;
         int isAutoTimestamp;
         Rect crop;
+#ifdef QCOM_BSP
+        Rect dirtyRect;
+#endif
         int scalingMode;
         uint32_t transform;
         int async;
@@ -211,6 +243,7 @@ public:
     // connected to the specified client API.
     virtual status_t disconnect(int api) = 0;
 
+#ifdef QCOM_HARDWARE
     // setBufferSize enables to specify the user defined size of the buffer
     // that needs to be allocated by surfaceflinger for its client. This is
     // useful for cases where the client doesn't want the gralloc to calculate
@@ -218,6 +251,20 @@ public:
     // calculate the size for the buffer. this will take effect from next
     // dequeue buffer.
     virtual status_t setBuffersSize(int size) = 0;
+#endif
+
+    // Allocates buffers based on the given dimensions/format.
+    //
+    // This function will allocate up to the maximum number of buffers
+    // permitted by the current BufferQueue configuration. It will use the
+    // given format, dimensions, and usage bits, which are interpreted in the
+    // same way as for dequeueBuffer, and the async flag must be set the same
+    // way as for dequeueBuffer to ensure that the correct number of buffers are
+    // allocated. This is most useful to avoid an allocation delay during
+    // dequeueBuffer. If there are already the maximum number of buffers
+    // allocated, this function has no effect.
+    virtual void allocateBuffers(bool async, uint32_t width, uint32_t height,
+            uint32_t format, uint32_t usage) = 0;
 
 };
 

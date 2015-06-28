@@ -34,13 +34,15 @@ enum {
     REQUEST_BUFFER = IBinder::FIRST_CALL_TRANSACTION,
     SET_BUFFER_COUNT,
     DEQUEUE_BUFFER,
+    DETACH_BUFFER,
+    ATTACH_BUFFER,
     QUEUE_BUFFER,
     CANCEL_BUFFER,
     QUERY,
     SET_BUFFERS_SIZE,
     CONNECT,
     DISCONNECT,
-    UPDATE_DIRTY_REGION,
+    ALLOCATE_BUFFERS,
 };
 
 class BpGraphicBufferProducer : public BpInterface<IGraphicBufferProducer>
@@ -85,25 +87,6 @@ public:
         return result;
     }
 
-    virtual status_t updateDirtyRegion(int bufferidx, int l,
-                                       int t, int r, int b) {
-        Parcel data, reply;
-        data.writeInterfaceToken(
-              IGraphicBufferProducer::getInterfaceDescriptor());
-        data.writeInt32(bufferidx);
-        data.writeInt32(l);
-        data.writeInt32(t);
-        data.writeInt32(r);
-        data.writeInt32(b);
-        status_t result = remote()->transact(UPDATE_DIRTY_REGION, data, &reply);
-        if (result != NO_ERROR) {
-           return result;
-        }
-        result = reply.readInt32();
-        return result;
-    }
-
-
     virtual status_t dequeueBuffer(int *buf, sp<Fence>* fence, bool async,
             uint32_t w, uint32_t h, uint32_t format, uint32_t usage) {
         Parcel data, reply;
@@ -123,6 +106,31 @@ public:
             *fence = new Fence();
             reply.read(**fence);
         }
+        result = reply.readInt32();
+        return result;
+    }
+
+    virtual status_t detachBuffer(int slot) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IGraphicBufferProducer::getInterfaceDescriptor());
+        data.writeInt32(slot);
+        status_t result = remote()->transact(DETACH_BUFFER, data, &reply);
+        if (result != NO_ERROR) {
+            return result;
+        }
+        result = reply.readInt32();
+        return result;
+    }
+
+    virtual status_t attachBuffer(int* slot, const sp<GraphicBuffer>& buffer) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IGraphicBufferProducer::getInterfaceDescriptor());
+        data.write(*buffer.get());
+        status_t result = remote()->transact(ATTACH_BUFFER, data, &reply);
+        if (result != NO_ERROR) {
+            return result;
+        }
+        *slot = reply.readInt32();
         result = reply.readInt32();
         return result;
     }
@@ -201,6 +209,7 @@ public:
         return result;
     }
 
+#ifdef QCOM_HARDWARE
     virtual status_t setBuffersSize(int size) {
         Parcel data, reply;
         data.writeInterfaceToken(IGraphicBufferProducer::getInterfaceDescriptor());
@@ -212,7 +221,21 @@ public:
         result = reply.readInt32();
         return result;
     }
-
+#endif
+    virtual void allocateBuffers(bool async, uint32_t width, uint32_t height,
+            uint32_t format, uint32_t usage) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IGraphicBufferProducer::getInterfaceDescriptor());
+        data.writeInt32(static_cast<int32_t>(async));
+        data.writeInt32(static_cast<int32_t>(width));
+        data.writeInt32(static_cast<int32_t>(height));
+        data.writeInt32(static_cast<int32_t>(format));
+        data.writeInt32(static_cast<int32_t>(usage));
+        status_t result = remote()->transact(ALLOCATE_BUFFERS, data, &reply);
+        if (result != NO_ERROR) {
+            ALOGE("allocateBuffers failed to transact: %d", result);
+        }
+    }
 };
 
 IMPLEMENT_META_INTERFACE(GraphicBufferProducer, "android.gui.IGraphicBufferProducer");
@@ -260,6 +283,23 @@ status_t BnGraphicBufferProducer::onTransact(
             reply->writeInt32(result);
             return NO_ERROR;
         } break;
+        case DETACH_BUFFER: {
+            CHECK_INTERFACE(IGraphicBufferProducer, data, reply);
+            int slot = data.readInt32();
+            int result = detachBuffer(slot);
+            reply->writeInt32(result);
+            return NO_ERROR;
+        } break;
+        case ATTACH_BUFFER: {
+            CHECK_INTERFACE(IGraphicBufferProducer, data, reply);
+            sp<GraphicBuffer> buffer = new GraphicBuffer();
+            data.read(*buffer.get());
+            int slot;
+            int result = attachBuffer(&slot, buffer);
+            reply->writeInt32(slot);
+            reply->writeInt32(result);
+            return NO_ERROR;
+        } break;
         case QUEUE_BUFFER: {
             CHECK_INTERFACE(IGraphicBufferProducer, data, reply);
             int buf = data.readInt32();
@@ -288,6 +328,7 @@ status_t BnGraphicBufferProducer::onTransact(
             reply->writeInt32(res);
             return NO_ERROR;
         } break;
+#ifdef QCOM_HARDWARE
         case SET_BUFFERS_SIZE: {
             CHECK_INTERFACE(IGraphicBufferProducer, data, reply);
             int size = data.readInt32();
@@ -295,6 +336,7 @@ status_t BnGraphicBufferProducer::onTransact(
             reply->writeInt32(res);
             return NO_ERROR;
         } break;
+#endif
         case CONNECT: {
             CHECK_INTERFACE(IGraphicBufferProducer, data, reply);
             sp<IBinder> token = data.readStrongBinder();
@@ -314,17 +356,15 @@ status_t BnGraphicBufferProducer::onTransact(
             reply->writeInt32(res);
             return NO_ERROR;
         } break;
-        case UPDATE_DIRTY_REGION: {
+	case ALLOCATE_BUFFERS:
             CHECK_INTERFACE(IGraphicBufferProducer, data, reply);
-            int bufferidx = data.readInt32();
-            int l = data.readInt32();
-            int t = data.readInt32();
-            int r = data.readInt32();
-            int b = data.readInt32();
-            status_t res = updateDirtyRegion(bufferidx, l, t, r, b);
-            reply->writeInt32(res);
+            bool async = static_cast<bool>(data.readInt32());
+            uint32_t width = static_cast<uint32_t>(data.readInt32());
+            uint32_t height = static_cast<uint32_t>(data.readInt32());
+            uint32_t format = static_cast<uint32_t>(data.readInt32());
+            uint32_t usage = static_cast<uint32_t>(data.readInt32());
+            allocateBuffers(async, width, height, format, usage);
             return NO_ERROR;
-        } break;
     }
     return BBinder::onTransact(code, data, reply, flags);
 }
@@ -339,6 +379,9 @@ size_t IGraphicBufferProducer::QueueBufferInput::getFlattenedSize() const {
     return sizeof(timestamp)
          + sizeof(isAutoTimestamp)
          + sizeof(crop)
+#ifdef QCOM_BSP
+         + sizeof(dirtyRect)
+#endif
          + sizeof(scalingMode)
          + sizeof(transform)
          + sizeof(async)
@@ -358,6 +401,9 @@ status_t IGraphicBufferProducer::QueueBufferInput::flatten(
     FlattenableUtils::write(buffer, size, timestamp);
     FlattenableUtils::write(buffer, size, isAutoTimestamp);
     FlattenableUtils::write(buffer, size, crop);
+#ifdef QCOM_BSP
+    FlattenableUtils::write(buffer, size, dirtyRect);
+#endif
     FlattenableUtils::write(buffer, size, scalingMode);
     FlattenableUtils::write(buffer, size, transform);
     FlattenableUtils::write(buffer, size, async);
@@ -371,6 +417,9 @@ status_t IGraphicBufferProducer::QueueBufferInput::unflatten(
               sizeof(timestamp)
             + sizeof(isAutoTimestamp)
             + sizeof(crop)
+#ifdef QCOM_BSP
+            + sizeof(dirtyRect)
+#endif
             + sizeof(scalingMode)
             + sizeof(transform)
             + sizeof(async);
@@ -382,6 +431,9 @@ status_t IGraphicBufferProducer::QueueBufferInput::unflatten(
     FlattenableUtils::read(buffer, size, timestamp);
     FlattenableUtils::read(buffer, size, isAutoTimestamp);
     FlattenableUtils::read(buffer, size, crop);
+#ifdef QCOM_BSP
+    FlattenableUtils::read(buffer, size, dirtyRect);
+#endif
     FlattenableUtils::read(buffer, size, scalingMode);
     FlattenableUtils::read(buffer, size, transform);
     FlattenableUtils::read(buffer, size, async);

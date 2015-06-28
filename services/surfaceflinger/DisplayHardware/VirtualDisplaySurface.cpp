@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// #define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 #include "VirtualDisplaySurface.h"
 #include "HWComposer.h"
 
@@ -247,11 +247,6 @@ void VirtualDisplaySurface::onFrameCommitted() {
 void VirtualDisplaySurface::dump(String8& result) const {
 }
 
-status_t VirtualDisplaySurface:: updateDirtyRegion(int bufferidx, int l,
-                                                     int t, int r, int b) {
-   return 0;
-}
-
 status_t VirtualDisplaySurface::requestBuffer(int pslot,
         sp<GraphicBuffer>* outBuf) {
     VDS_LOGW_IF(mDbgState != DBG_STATE_GLES,
@@ -368,6 +363,15 @@ status_t VirtualDisplaySurface::dequeueBuffer(int* pslot, sp<Fence>* fence, bool
     return result;
 }
 
+status_t VirtualDisplaySurface::detachBuffer(int slot) {
+    return mSource[SOURCE_SINK]->detachBuffer(slot);
+}
+
+status_t VirtualDisplaySurface::attachBuffer(int* outSlot,
+        const sp<GraphicBuffer>& buffer) {
+    return mSource[SOURCE_SINK]->attachBuffer(outSlot, buffer);
+}
+
 status_t VirtualDisplaySurface::queueBuffer(int pslot,
         const QueueBufferInput& input, QueueBufferOutput* output) {
     VDS_LOGW_IF(mDbgState != DBG_STATE_GLES,
@@ -412,7 +416,7 @@ status_t VirtualDisplaySurface::queueBuffer(int pslot,
         uint32_t transform;
         bool async;
         input.deflate(&timestamp, &isAutoTimestamp, &crop, &scalingMode,
-                &transform, &async, &mFbFence);
+               &transform, &async, &mFbFence);
 
         mFbProducerSlot = pslot;
         mOutputFence = mFbFence;
@@ -452,8 +456,16 @@ status_t VirtualDisplaySurface::disconnect(int api) {
     return mSource[SOURCE_SINK]->disconnect(api);
 }
 
+#ifdef QCOM_HARDWARE
 status_t VirtualDisplaySurface::setBuffersSize(int size) {
    return mSource[SOURCE_SINK]->setBuffersSize(size);
+}
+#endif
+
+void VirtualDisplaySurface::allocateBuffers(bool /* async */,
+        uint32_t /* width */, uint32_t /* height */, uint32_t /* format */,
+        uint32_t /* usage */) {
+    // TODO: Should we actually allocate buffers for a virtual display?
 }
 
 void VirtualDisplaySurface::updateQueueBufferOutput(

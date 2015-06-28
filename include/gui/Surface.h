@@ -77,10 +77,22 @@ public:
     static bool isValid(const sp<Surface>& surface) {
         return surface != NULL && surface->getIGraphicBufferProducer() != NULL;
     }
-    virtual int32_t getSessionId(){
-        return reinterpret_cast<int>(mGraphicBufferProducer.get());
-    }
-    status_t setDirtyRegion(Region* dirty = NULL);
+
+#ifdef QCOM_BSP
+    /* sets dirty rectangle of the buffer that gets queued next for the
+     * Surface */
+    status_t setDirtyRect(const Rect* dirtyRect);
+#endif
+
+    /* Allocates buffers based on the current dimensions/format.
+     *
+     * This function will allocate up to the maximum number of buffers
+     * permitted by the current BufferQueue configuration. It will use the
+     * default format and dimensions. This is most useful to avoid an allocation
+     * delay during dequeueBuffer. If there are already the maximum number of
+     * buffers allocated, this function has no effect.
+     */
+    void allocateBuffers();
 
 protected:
     virtual ~Surface();
@@ -148,7 +160,9 @@ protected:
     virtual int setBuffersTimestamp(int64_t timestamp);
     virtual int setCrop(Rect const* rect);
     virtual int setUsage(uint32_t reqUsage);
+#ifdef QCOM_HARDWARE
     virtual int setBuffersSize(int size);
+#endif
 
 public:
     virtual int lock(ANativeWindow_Buffer* outBuffer, ARect* inOutDirtyBounds);
@@ -210,6 +224,12 @@ private:
     // that gets queued. It is set by calling setCrop.
     Rect mCrop;
 
+#ifdef QCOM_BSP
+    // mDirtyRect is the dirty rectangle set for the next buffer that gets
+    // queued. It is set by calling setDirtyRect.
+    Rect mDirtyRect;
+#endif
+
     // mScalingMode is the scaling mode that will be used for the next
     // buffers that get queued. It is set by calling setScalingMode.
     int mScalingMode;
@@ -268,9 +288,6 @@ private:
 #ifdef SURFACE_SKIP_FIRST_DEQUEUE
     bool                        mDequeuedOnce;
 #endif
-
-    // mDequeueIdx will be used to store the current buffer index for a layer.
-    int mDequeueIdx;
 };
 
 }; // namespace android

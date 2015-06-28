@@ -183,6 +183,8 @@ status_t IGraphicBufferConsumer::BufferItem::unflatten(
 
 enum {
     ACQUIRE_BUFFER = IBinder::FIRST_CALL_TRANSACTION,
+    DETACH_BUFFER,
+    ATTACH_BUFFER,
     RELEASE_BUFFER,
     CONSUMER_CONNECT,
     CONSUMER_DISCONNECT,
@@ -195,8 +197,6 @@ enum {
     SET_DEFAULT_BUFFER_FORMAT,
     SET_CONSUMER_USAGE_BITS,
     SET_TRANSFORM_HINT,
-    SET_DIRTY_RECT,
-    GET_DIRTY_RECT,
     DUMP,
 };
 
@@ -222,6 +222,31 @@ public:
             return result;
         }
         return reply.readInt32();
+    }
+
+   virtual status_t detachBuffer(int slot) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IGraphicBufferConsumer::getInterfaceDescriptor());
+        data.writeInt32(slot);
+        status_t result = remote()->transact(DETACH_BUFFER, data, &reply);
+        if (result != NO_ERROR) {
+            return result;
+        }
+        result = reply.readInt32();
+        return result;
+    }
+
+    virtual status_t attachBuffer(int* slot, const sp<GraphicBuffer>& buffer) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IGraphicBufferConsumer::getInterfaceDescriptor());
+        data.write(*buffer.get());
+        status_t result = remote()->transact(ATTACH_BUFFER, data, &reply);
+        if (result != NO_ERROR) {
+            return result;
+        }
+        *slot = reply.readInt32();
+        result = reply.readInt32();
+        return result;
     }
 
     virtual status_t releaseBuffer(int buf, uint64_t frameNumber,
@@ -364,32 +389,6 @@ public:
         remote()->transact(DUMP, data, &reply);
         reply.readString8();
     }
-    virtual status_t setCurrentDirtyRegion( int index) {
-        Parcel data, reply;
-        data.writeInterfaceToken(IGraphicBufferConsumer::getInterfaceDescriptor());
-        data.writeInt32(index);
-        status_t result = remote()->transact(SET_DIRTY_RECT, data, &reply);
-        if (result != NO_ERROR) {
-            return result;
-        }
-        return reply.readInt32();
-    }
-
-    virtual  status_t getCurrentDirtyRegion(Rect& dirtyRect) {
-        Parcel data, reply;
-        data.writeInterfaceToken(
-            IGraphicBufferConsumer::getInterfaceDescriptor());
-        status_t result = remote()->transact(GET_DIRTY_RECT, data, &reply);
-        if (result != NO_ERROR) {
-            return result;
-        }
-        dirtyRect.left   = reply.readInt32();
-        dirtyRect.top    = reply.readInt32();
-        dirtyRect.right  = reply.readInt32();
-        dirtyRect.bottom = reply.readInt32();
-        return reply.readInt32();
-    }
-
 };
 
 IMPLEMENT_META_INTERFACE(GraphicBufferConsumer, "android.gui.IGraphicBufferConsumer");
@@ -407,6 +406,23 @@ status_t BnGraphicBufferConsumer::onTransact(
             status_t result = acquireBuffer(&item, presentWhen);
             status_t err = reply->write(item);
             if (err) return err;
+            reply->writeInt32(result);
+            return NO_ERROR;
+        } break;
+        case DETACH_BUFFER: {
+            CHECK_INTERFACE(IGraphicBufferConsumer, data, reply);
+            int slot = data.readInt32();
+            int result = detachBuffer(slot);
+            reply->writeInt32(result);
+            return NO_ERROR;
+        } break;
+        case ATTACH_BUFFER: {
+            CHECK_INTERFACE(IGraphicBufferConsumer, data, reply);
+            sp<GraphicBuffer> buffer = new GraphicBuffer();
+            data.read(*buffer.get());
+            int slot;
+            int result = attachBuffer(&slot, buffer);
+            reply->writeInt32(slot);
             reply->writeInt32(result);
             return NO_ERROR;
         } break;
@@ -506,24 +522,6 @@ status_t BnGraphicBufferConsumer::onTransact(
             reply->writeString8(result);
             return NO_ERROR;
         }
-        case SET_DIRTY_RECT: {
-           CHECK_INTERFACE(IGraphicBufferConsumer, data, reply);
-            uint32_t index = data.readInt32();
-            status_t result = setCurrentDirtyRegion(index);
-            reply->writeInt32(result);
-            return NO_ERROR;
-        } break;
-        case GET_DIRTY_RECT: {
-            CHECK_INTERFACE(IGraphicBufferConsumer, data, reply);
-            Rect dirtyRect;
-            status_t result = getCurrentDirtyRegion(dirtyRect);
-            reply->writeInt32(dirtyRect.left);
-            reply->writeInt32(dirtyRect.top);
-            reply->writeInt32(dirtyRect.right);
-            reply->writeInt32(dirtyRect.bottom);
-            reply->writeInt32(result);
-            return NO_ERROR;
-        } break;
     }
     return BBinder::onTransact(code, data, reply, flags);
 }

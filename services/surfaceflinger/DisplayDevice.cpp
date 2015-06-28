@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#define LOG_NDEBUG 0
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -129,9 +130,14 @@ DisplayDevice::DisplayDevice(
             mDisplayName = "Virtual Screen";    // e.g. Overlay #n
             break;
     }
+    char property[PROPERTY_VALUE_MAX];
+    int panelOrientation = DisplayState::eOrientationDefault;
+    // Set the panel orientation from the property.
+    property_get("persist.panel.orientation", property, "0");
+    panelOrientation = atoi(property) / 90;
 
     // initialize the display orientation transform.
-    setProjection(DisplayState::eOrientationDefault, mViewport, mFrame);
+    setProjection(panelOrientation, mViewport, mFrame);
 }
 
 DisplayDevice::~DisplayDevice() {
@@ -140,6 +146,13 @@ DisplayDevice::~DisplayDevice() {
         mSurface = EGL_NO_SURFACE;
     }
 }
+
+#ifdef QCOM_BSP
+void DisplayDevice::eglSwapPreserved(bool enable) const {
+    int swapValue = enable ? EGL_BUFFER_PRESERVED : EGL_BUFFER_DESTROYED;
+    eglSurfaceAttrib(mDisplay, mSurface, EGL_SWAP_BEHAVIOR, swapValue);
+}
+#endif
 
 void DisplayDevice::disconnect(HWComposer& hwc) {
     if (mHwcDisplayId >= 0) {
@@ -234,9 +247,21 @@ void DisplayDevice::swapBuffers(HWComposer& hwc) const {
     //    (a) we have framebuffer target support (not present on legacy
     //        devices, where HWComposer::commit() handles things); or
     //    (b) this is a virtual display
-    if (hwc.initCheck() != NO_ERROR ||
-            (hwc.hasGlesComposition(mHwcDisplayId) &&
-             (hwc.supportsFramebufferTarget() || mType >= DISPLAY_VIRTUAL))) {
+
+     //when (cur== end) we may have to consider wether we need call eglSwapBuffers
+     // caution: this change is to deal with the issue that SurfaceFlinger
+     //             called drawWormHoles() but not call eglSwapBuffers here.
+     //             however, there may have potential risk in case SurfaceFlinger
+     //             didn't call drawWormHoles(). if so, SurfaceFlinger may
+     //             wrongly call eglSwapBuffers one more time.
+
+    const int32_t id = getHwcDisplayId();
+    HWComposer::LayerListIterator cur = hwc.begin(id);
+    const HWComposer::LayerListIterator end = hwc.end(id);
+
+	if (hwc.initCheck() != NO_ERROR ||
+	    ((hwc.supportsFramebufferTarget() || mType >= DISPLAY_VIRTUAL) &&
+            (hwc.hasGlesComposition(mHwcDisplayId) || (cur==end)))){
         EGLBoolean success = eglSwapBuffers(mDisplay, mSurface);
         if (!success) {
             EGLint error = eglGetError();

@@ -80,6 +80,8 @@ void SensorService::onFirstRef()
         if (count > 0) {
             ssize_t orientationIndex = -1;
             bool hasGyro = false;
+            bool hasMagnetometer = false;
+            bool hasAccelerometer = false;
             uint32_t virtualSensorsNeeds =
                     (1<<SENSOR_TYPE_GRAVITY) |
                     (1<<SENSOR_TYPE_LINEAR_ACCELERATION) |
@@ -95,6 +97,12 @@ void SensorService::onFirstRef()
                     case SENSOR_TYPE_GYROSCOPE:
                     case SENSOR_TYPE_GYROSCOPE_UNCALIBRATED:
                         hasGyro = true;
+                        break;
+                    case SENSOR_TYPE_MAGNETIC_FIELD:
+                        hasMagnetometer = true;
+                        break;
+                    case SENSOR_TYPE_ACCELEROMETER:
+                        hasAccelerometer = true;
                         break;
                     case SENSOR_TYPE_GRAVITY:
                     case SENSOR_TYPE_LINEAR_ACCELERATION:
@@ -112,7 +120,7 @@ void SensorService::onFirstRef()
             // build the sensor list returned to users
             mUserSensorList = mSensorList;
 
-            if (hasGyro) {
+            if (hasGyro && hasMagnetometer && hasAccelerometer) {
                 Sensor aSensor;
 
                 // Add Android virtual sensors if they're not already
@@ -135,9 +143,14 @@ void SensorService::onFirstRef()
 
                 aSensor = registerVirtualSensor( new OrientationSensor() );
                 if (virtualSensorsNeeds & (1<<SENSOR_TYPE_ROTATION_VECTOR)) {
-                    // if we are doing our own rotation-vector, also add
-                    // the orientation sensor and remove the HAL provided one.
-                    mUserSensorList.replaceAt(aSensor, orientationIndex);
+                    if (orientationIndex == -1) {
+                        // some sensor HALs don't provide an orientation sensor.
+                        mUserSensorList.add(aSensor);
+                    } else {
+                        // if we are doing our own rotation-vector, also add
+                        // the orientation sensor and remove the HAL provided one.
+                        mUserSensorList.replaceAt(aSensor, orientationIndex);
+                    }
                 }
 
                 // virtual debugging sensors are not added to mUserSensorList
@@ -426,20 +439,21 @@ bool SensorService::threadLoop()
 }
 
 void SensorService::recordLastValue(
-        sensors_event_t const * buffer, size_t count)
-{
+        const sensors_event_t* buffer, size_t count) {
     Mutex::Autolock _l(mLock);
-    // record the last event for each sensor
-    int32_t prev = buffer[0].sensor;
-    for (size_t i=1 ; i<count ; i++) {
-        // record the last event of each sensor type in this buffer
-        int32_t curr = buffer[i].sensor;
-        if (curr != prev) {
-            mLastEventSeen.editValueFor(prev) = buffer[i-1];
-            prev = curr;
+    const sensors_event_t* last = NULL;
+    for (size_t i = 0; i < count; i++) {
+        const sensors_event_t* event = &buffer[i];
+        if (event->type != SENSOR_TYPE_META_DATA) {
+            if (last && event->sensor != last->sensor) {
+                mLastEventSeen.editValueFor(last->sensor) = *last;
+            }
+            last = event;
         }
     }
-    mLastEventSeen.editValueFor(prev) = buffer[count-1];
+    if (last) {
+        mLastEventSeen.editValueFor(last->sensor) = *last;
+    }
 }
 
 void SensorService::sortEventBuffer(sensors_event_t* buffer, size_t count)
