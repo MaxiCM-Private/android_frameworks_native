@@ -17,35 +17,58 @@
 #ifndef ANDROID_GUI_BUFFERQUEUE_H
 #define ANDROID_GUI_BUFFERQUEUE_H
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
+#include <gui/BufferQueueProducer.h>
+#include <gui/BufferQueueConsumer.h>
+#include <gui/IConsumerListener.h>
+
+// These are only required to keep other parts of the framework with incomplete
+// dependencies building successfully
+#include <gui/IGraphicBufferAlloc.h>
 
 #include <binder/IBinder.h>
-
-#include <gui/IConsumerListener.h>
-#include <gui/IGraphicBufferAlloc.h>
-#include <gui/IGraphicBufferProducer.h>
-#include <gui/IGraphicBufferConsumer.h>
-
-#include <ui/Fence.h>
-#include <ui/GraphicBuffer.h>
-
-#include <utils/String8.h>
-#include <utils/Vector.h>
-#include <utils/threads.h>
 
 namespace android {
 // ----------------------------------------------------------------------------
 
-class BufferQueue : public BnGraphicBufferProducer,
-                    public BnGraphicBufferConsumer,
+class BQProducer : public BnGraphicBufferProducer {
+public:
+    virtual status_t detachProducerBuffer(int slot) = 0;
+    virtual status_t attachProducerBuffer(int* slot,
+            const sp<GraphicBuffer>& buffer) = 0;
+
+    virtual status_t detachBuffer(int slot) {
+        return detachProducerBuffer(slot);
+    }
+
+    virtual status_t attachBuffer(int* slot, const sp<GraphicBuffer>& buffer) {
+        return attachProducerBuffer(slot, buffer);
+    }
+};
+
+class BQConsumer : public BnGraphicBufferConsumer {
+public:
+    virtual status_t detachConsumerBuffer(int slot) = 0;
+    virtual status_t attachConsumerBuffer(int* slot,
+            const sp<GraphicBuffer>& buffer) = 0;
+
+    virtual status_t detachBuffer(int slot) {
+        return detachConsumerBuffer(slot);
+    }
+
+    virtual status_t attachBuffer(int* slot, const sp<GraphicBuffer>& buffer) {
+        return attachConsumerBuffer(slot, buffer);
+    }
+};
+
+class BufferQueue : public BQProducer,
+                    public BQConsumer,
                     private IBinder::DeathRecipient {
 public:
     enum { MIN_UNDEQUEUED_BUFFERS = 2 };
     enum { NUM_BUFFER_SLOTS = 32 };
-    enum { NO_CONNECTED_API = 0 };
+    //enum { NO_CONNECTED_API = 0 };
     enum { INVALID_BUFFER_SLOT = -1 };
-    enum { STALE_BUFFER_SLOT = 1, NO_BUFFER_AVAILABLE, PRESENT_LATER };
+    //enum { STALE_BUFFER_SLOT = 1, NO_BUFFER_AVAILABLE, PRESENT_LATER };
 
     // When in async mode we reserve two slots in order to guarantee that the
     // producer and consumer can run asynchronously.
@@ -74,6 +97,10 @@ public:
         // the raison d'etre of ProxyConsumerListener.
         wp<ConsumerListener> mConsumerListener;
     };
+
+    static void createBufferQueue(sp<BnGraphicBufferProducer>* outProducer,
+            sp<BnGraphicBufferConsumer>* outConsumer,
+            const sp<IGraphicBufferAlloc>& allocator = NULL);
 
 
     // BufferQueue manages a pool of gralloc memory slots to be used by
@@ -160,6 +187,13 @@ public:
     virtual status_t dequeueBuffer(int *buf, sp<Fence>* fence, bool async,
             uint32_t width, uint32_t height, uint32_t format, uint32_t usage);
 
+    // See IGraphicBufferProducer::detachBuffer
+    virtual status_t detachProducerBuffer(int slot);
+
+    // See IGraphicBufferProducer::attachBuffer
+    virtual status_t attachProducerBuffer(int* slot,
+            const sp<GraphicBuffer>& buffer);
+
     // queueBuffer returns a filled buffer to the BufferQueue.
     //
     // Additional data is provided in the QueueBufferInput struct.  Notably,
@@ -234,6 +268,13 @@ public:
     // returned.  The presentation time is in nanoseconds, and the time base
     // is CLOCK_MONOTONIC.
     virtual status_t acquireBuffer(BufferItem *buffer, nsecs_t presentWhen);
+
+    // See IGraphicBufferConsumer::detachBuffer
+    virtual status_t detachConsumerBuffer(int slot);
+
+    // See IGraphicBufferConsumer::attachBuffer
+    virtual status_t attachConsumerBuffer(int* slot,
+            const sp<GraphicBuffer>& buffer);
 
     // releaseBuffer releases a buffer slot from the consumer back to the
     // BufferQueue.  This may be done while the buffer's contents are still
@@ -325,27 +366,27 @@ public:
 private:
     // freeBufferLocked frees the GraphicBuffer and sync resources for the
     // given slot.
-    void freeBufferLocked(int index);
+    //void freeBufferLocked(int index);
 
     // freeAllBuffersLocked frees the GraphicBuffer and sync resources for
     // all slots.
-    void freeAllBuffersLocked();
+    //void freeAllBuffersLocked();
 
     // setDefaultMaxBufferCountLocked sets the maximum number of buffer slots
     // that will be used if the producer does not override the buffer slot
     // count.  The count must be between 2 and NUM_BUFFER_SLOTS, inclusive.
     // The initial default is 2.
-    status_t setDefaultMaxBufferCountLocked(int count);
+    //status_t setDefaultMaxBufferCountLocked(int count);
 
     // getMinUndequeuedBufferCount returns the minimum number of buffers
     // that must remain in a state other than DEQUEUED.
     // The async parameter tells whether we're in asynchronous mode.
-    int getMinUndequeuedBufferCount(bool async) const;
+    //int getMinUndequeuedBufferCount(bool async) const;
 
     // getMinBufferCountLocked returns the minimum number of buffers allowed
     // given the current BufferQueue state.
     // The async parameter tells whether we're in asynchronous mode.
-    int getMinMaxBufferCountLocked(bool async) const;
+    //int getMinMaxBufferCountLocked(bool async) const;
 
     // getMaxBufferCountLocked returns the maximum number of buffers that can
     // be allocated at once.  This value depends upon the following member
@@ -359,34 +400,22 @@ private:
     //
     // Any time one of these member variables is changed while a producer is
     // connected, mDequeueCondition must be broadcast.
-    int getMaxBufferCountLocked(bool async) const;
+    //int getMaxBufferCountLocked(bool async) const;
 
     // stillTracking returns true iff the buffer item is still being tracked
     // in one of the slots.
-    bool stillTracking(const BufferItem *item) const;
-
-    struct BufferSlot {
-
-        BufferSlot()
-        : mEglDisplay(EGL_NO_DISPLAY),
-          mBufferState(BufferSlot::FREE),
-          mRequestBufferCalled(false),
-          mFrameNumber(0),
-          mEglFence(EGL_NO_SYNC_KHR),
-          mAcquireCalled(false),
-          mNeedsCleanupOnRelease(false) {
-        }
+    //bool stillTracking(const BufferItem *item) const;
 
         // mGraphicBuffer points to the buffer allocated for this slot or is NULL
         // if no buffer has been allocated.
-        sp<GraphicBuffer> mGraphicBuffer;
+        //sp<GraphicBuffer> mGraphicBuffer;
 
         // mEglDisplay is the EGLDisplay used to create EGLSyncKHR objects.
-        EGLDisplay mEglDisplay;
+        //EGLDisplay mEglDisplay;
 
         // BufferState represents the different states in which a buffer slot
         // can be.  All slots are initially FREE.
-        enum BufferState {
+        //enum BufferState {
             // FREE indicates that the buffer is available to be dequeued
             // by the producer.  The buffer may be in use by the consumer for
             // a finite time, so the buffer must not be modified until the
@@ -394,7 +423,7 @@ private:
             //
             // The slot is "owned" by BufferQueue.  It transitions to DEQUEUED
             // when dequeueBuffer is called.
-            FREE = 0,
+           // FREE = 0,
 
             // DEQUEUED indicates that the buffer has been dequeued by the
             // producer, but has not yet been queued or canceled.  The
@@ -403,7 +432,7 @@ private:
             //
             // The slot is "owned" by the producer.  It can transition to
             // QUEUED (via queueBuffer) or back to FREE (via cancelBuffer).
-            DEQUEUED = 1,
+            //DEQUEUED = 1,
 
             // QUEUED indicates that the buffer has been filled by the
             // producer and queued for use by the consumer.  The buffer
@@ -414,7 +443,7 @@ private:
             // The slot is "owned" by BufferQueue.  It can transition to
             // ACQUIRED (via acquireBuffer) or to FREE (if another buffer is
             // queued in asynchronous mode).
-            QUEUED = 2,
+            //QUEUED = 2,
 
             // ACQUIRED indicates that the buffer has been acquired by the
             // consumer.  As with QUEUED, the contents must not be accessed
@@ -422,28 +451,28 @@ private:
             //
             // The slot is "owned" by the consumer.  It transitions to FREE
             // when releaseBuffer is called.
-            ACQUIRED = 3
-        };
+            //ACQUIRED = 3
+        //};
 
         // mBufferState is the current state of this buffer slot.
-        BufferState mBufferState;
+        //BufferState mBufferState;
 
         // mRequestBufferCalled is used for validating that the producer did
         // call requestBuffer() when told to do so. Technically this is not
         // needed but useful for debugging and catching producer bugs.
-        bool mRequestBufferCalled;
+        //bool mRequestBufferCalled;
 
         // mFrameNumber is the number of the queued frame for this slot.  This
         // is used to dequeue buffers in LRU order (useful because buffers
         // may be released before their release fence is signaled).
-        uint64_t mFrameNumber;
+        //uint64_t mFrameNumber;
 
         // mEglFence is the EGL sync object that must signal before the buffer
         // associated with this buffer slot may be dequeued. It is initialized
         // to EGL_NO_SYNC_KHR when the buffer is created and may be set to a
         // new sync object in releaseBuffer.  (This is deprecated in favor of
         // mFence, below.)
-        EGLSyncKHR mEglFence;
+        //EGLSyncKHR mEglFence;
 
         // mFence is a fence which will signal when work initiated by the
         // previous owner of the buffer is finished. When the buffer is FREE,
@@ -454,16 +483,16 @@ private:
         // buffer. When the buffer is DEQUEUED or ACQUIRED, the fence has been
         // passed to the consumer or producer along with ownership of the
         // buffer, and mFence is set to NO_FENCE.
-        sp<Fence> mFence;
+        //sp<Fence> mFence;
 
         // Indicates whether this buffer has been seen by a consumer yet
-        bool mAcquireCalled;
+        //bool mAcquireCalled;
 
         // Indicates whether this buffer needs to be cleaned up by the
         // consumer.  This is set when a buffer in ACQUIRED state is freed.
         // It causes releaseBuffer to return STALE_BUFFER_SLOT.
-        bool mNeedsCleanupOnRelease;
-    };
+        //bool mNeedsCleanupOnRelease;
+    //};
 
     // mSlots is the array of buffer slots that must be mirrored on the
     // producer side. This allows buffer ownership to be transferred between
@@ -471,15 +500,15 @@ private:
     // The entire array is initialized to NULL at construction time, and
     // buffers are allocated for a slot when requestBuffer is called with
     // that slot's index.
-    BufferSlot mSlots[NUM_BUFFER_SLOTS];
+    //BufferSlot mSlots[NUM_BUFFER_SLOTS];
 
     // mDefaultWidth holds the default width of allocated buffers. It is used
     // in dequeueBuffer() if a width and height of zero is specified.
-    uint32_t mDefaultWidth;
+    //uint32_t mDefaultWidth;
 
     // mDefaultHeight holds the default height of allocated buffers. It is used
     // in dequeueBuffer() if a width and height of zero is specified.
-    uint32_t mDefaultHeight;
+    //uint32_t mDefaultHeight;
 
     // mMaxAcquiredBufferCount is the number of buffers that the consumer may
     // acquire at one time.  It defaults to 1 and can be changed by the
@@ -488,54 +517,54 @@ private:
     //
     // This value is used to derive the value returned for the
     // MIN_UNDEQUEUED_BUFFERS query by the producer.
-    int mMaxAcquiredBufferCount;
+    //int mMaxAcquiredBufferCount;
 
     // mDefaultMaxBufferCount is the default limit on the number of buffers
     // that will be allocated at one time.  This default limit is set by the
     // consumer.  The limit (as opposed to the default limit) may be
     // overridden by the producer.
-    int mDefaultMaxBufferCount;
+    //int mDefaultMaxBufferCount;
 
     // mOverrideMaxBufferCount is the limit on the number of buffers that will
     // be allocated at one time. This value is set by the image producer by
     // calling setBufferCount. The default is zero, which means the producer
     // doesn't care about the number of buffers in the pool. In that case
     // mDefaultMaxBufferCount is used as the limit.
-    int mOverrideMaxBufferCount;
+    //int mOverrideMaxBufferCount;
 
     // mGraphicBufferAlloc is the connection to SurfaceFlinger that is used to
     // allocate new GraphicBuffer objects.
-    sp<IGraphicBufferAlloc> mGraphicBufferAlloc;
+    //sp<IGraphicBufferAlloc> mGraphicBufferAlloc;
 
     // mConsumerListener is used to notify the connected consumer of
     // asynchronous events that it may wish to react to.  It is initially set
     // to NULL and is written by consumerConnect and consumerDisconnect.
-    sp<IConsumerListener> mConsumerListener;
+    //sp<IConsumerListener> mConsumerListener;
 
     // mConsumerControlledByApp whether the connected consumer is controlled by the
     // application.
-    bool mConsumerControlledByApp;
+    //bool mConsumerControlledByApp;
 
     // mDequeueBufferCannotBlock whether dequeueBuffer() isn't allowed to block.
     // this flag is set during connect() when both consumer and producer are controlled
     // by the application.
-    bool mDequeueBufferCannotBlock;
+    //bool mDequeueBufferCannotBlock;
 
     // mUseAsyncBuffer whether an extra buffer is used in async mode to prevent
     // dequeueBuffer() from ever blocking.
-    bool mUseAsyncBuffer;
+    //bool mUseAsyncBuffer;
 
     // mConnectedApi indicates the producer API that is currently connected
     // to this BufferQueue.  It defaults to NO_CONNECTED_API (= 0), and gets
     // updated by the connect and disconnect methods.
-    int mConnectedApi;
+    //int mConnectedApi;
 
     // mDequeueCondition condition used for dequeueBuffer in synchronous mode
-    mutable Condition mDequeueCondition;
+    //mutable Condition mDequeueCondition;
 
     // mQueue is a FIFO of queued buffers used in synchronous mode
-    typedef Vector<BufferItem> Fifo;
-    Fifo mQueue;
+    //typedef Vector<BufferItem> Fifo;
+    //Fifo mQueue;
 
     // mAbandoned indicates that the BufferQueue will no longer be used to
     // consume image buffers pushed to it using the IGraphicBufferProducer
@@ -543,38 +572,39 @@ private:
     // consumerDisconnect method.  A BufferQueue that has been abandoned will
     // return the NO_INIT error from all IGraphicBufferProducer methods
     // capable of returning an error.
-    bool mAbandoned;
+    //bool mAbandoned;
 
     // mConsumerName is a string used to identify the BufferQueue in log
     // messages.  It is set by the setConsumerName method.
-    String8 mConsumerName;
+    //String8 mConsumerName;
 
     // mMutex is the mutex used to prevent concurrent access to the member
     // variables of BufferQueue objects. It must be locked whenever the
     // member variables are accessed.
-    mutable Mutex mMutex;
+    //mutable Mutex mMutex;
 
     // mFrameCounter is the free running counter, incremented on every
     // successful queueBuffer call, and buffer allocation.
-    uint64_t mFrameCounter;
+    //uint64_t mFrameCounter;
 
     // mBufferHasBeenQueued is true once a buffer has been queued.  It is
     // reset when something causes all buffers to be freed (e.g. changing the
     // buffer count).
-    bool mBufferHasBeenQueued;
+    //bool mBufferHasBeenQueued;
 
     // mDefaultBufferFormat can be set so it will override
     // the buffer format when it isn't specified in dequeueBuffer
-    uint32_t mDefaultBufferFormat;
+    //uint32_t mDefaultBufferFormat;
 
     // mConsumerUsageBits contains flags the consumer wants for GraphicBuffers
-    uint32_t mConsumerUsageBits;
+    //uint32_t mConsumerUsageBits;
 
     // mTransformHint is used to optimize for screen rotations
-    uint32_t mTransformHint;
+    //uint32_t mTransformHint;
 
     // mConnectedProducerToken is used to set a binder death notification on the producer
-    sp<IBinder> mConnectedProducerToken;
+    sp<BufferQueueProducer> mProducer;
+    sp<BufferQueueConsumer> mConsumer;
 };
 
 // ----------------------------------------------------------------------------

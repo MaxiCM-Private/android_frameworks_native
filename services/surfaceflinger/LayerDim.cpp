@@ -57,6 +57,43 @@ bool LayerDim::isVisible() const {
     return !(s.flags & layer_state_t::eLayerHidden) && s.alpha;
 }
 
+void LayerDim::setGeometry(const sp<const DisplayDevice>& hw,
+            HWComposer::HWCLayerInterface& layer)
+{
+    layer.setDefaultState();
+
+    layer.setSkip(false);
+
+    // this gives us only the "orientation" component of the transform
+    const State& s(getDrawingState());
+    const uint32_t finalTransform = s.transform.getOrientation();
+    // we can only handle simple transformation
+    if (finalTransform & Transform::ROT_INVALID) {
+        layer.setTransform(0);
+    } else {
+        layer.setTransform(finalTransform);
+    }
+
+    // Dim. use higher 16 bit to store alpha
+    layer.setBlending(HWC_BLENDING_DIM | (getDrawingState().alpha << 16));
+
+    const Transform& tr = hw->getTransform();
+    Rect transformedBounds(computeBounds());
+    transformedBounds = tr.transform(transformedBounds);
+
+    // scaling is already applied in transformedBounds
+    layer.setFrame(transformedBounds);
+    layer.setVisibleRegionScreen(tr.transform(visibleRegion));
+}
+
+void LayerDim::setPerFrameData(const sp<const DisplayDevice>& hw,
+            HWComposer::HWCLayerInterface& layer) {
+    Rect crop;
+    crop.clear();
+
+    layer.setCrop(crop);
+    layer.setBuffer(NULL);
+
 
 // ---------------------------------------------------------------------------
 

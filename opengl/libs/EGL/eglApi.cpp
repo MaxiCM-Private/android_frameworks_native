@@ -97,6 +97,7 @@ extern char const * const gExtensionString  =
         "EGL_KHR_create_context "
         "EGL_EXT_create_context_robustness "
         "EGL_NV_system_time "
+	"EGL_ANDROID_get_render_buffer "
         "EGL_ANDROID_image_native_buffer "      // mandatory
         "EGL_KHR_wait_sync "                    // strongly recommended
         "EGL_ANDROID_recordable "               // mandatory
@@ -144,6 +145,8 @@ static const extention_map_t sExtensionMap[] = {
             (__eglMustCastToProperFunctionPointerType)&eglGetSystemTimeFrequencyNV },
     { "eglGetSystemTimeNV",
             (__eglMustCastToProperFunctionPointerType)&eglGetSystemTimeNV },
+    { "eglGetRenderBufferANDROID",
+            (__eglMustCastToProperFunctionPointerType)&eglGetRenderBufferANDROID },
 
     // EGL_KHR_wait_sync
     { "eglWaitSyncKHR",
@@ -1519,6 +1522,25 @@ EGLint eglWaitSyncKHR(EGLDisplay dpy, EGLSyncKHR sync, EGLint flags) {
 // ----------------------------------------------------------------------------
 // ANDROID extensions
 // ----------------------------------------------------------------------------
+
+EGLClientBuffer eglGetRenderBufferANDROID(EGLDisplay dpy, EGLSurface draw)
+{
+    clearError();
+
+    const egl_display_ptr dp = validate_display(dpy);
+    if (!dp) return EGL_FALSE;
+
+    SurfaceRef _s(dp.get(), draw);
+    if (!_s.get())
+        return setError(EGL_BAD_SURFACE, (EGLClientBuffer*)0);
+
+    egl_surface_t const * const s = get_surface(draw);
+    if (s->cnx->egl.eglGetRenderBufferANDROID) {
+        return s->cnx->egl.eglGetRenderBufferANDROID(
+                dp->disp.dpy, s->surface);
+    }
+    return setError(EGL_BAD_DISPLAY, (EGLClientBuffer*)0);
+}
 
 EGLint eglDupNativeFenceFDANDROID(EGLDisplay dpy, EGLSyncKHR sync)
 {
