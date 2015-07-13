@@ -275,6 +275,7 @@ public:
     float getDpiY(int disp) const;
     bool isConnected(int disp) const;
 
+    void setEglSurface(int disp, void* dpy, void* surface);
     status_t setVirtualDisplayProperties(int32_t id, uint32_t w, uint32_t h,
             uint32_t format);
 
@@ -331,6 +332,7 @@ private:
         uint32_t format;    // pixel format from FB hal, for pre-hwc-1.1
         float xdpi;
         float ydpi;
+	uint32_t format;
         nsecs_t refresh;
         bool connected;
         bool hasFbComp;

@@ -15,6 +15,7 @@
  */
 
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
+#define LOG_NDEBUG 0
 
 #include <stdint.h>
 #include <stdio.h>
@@ -463,6 +464,7 @@ static const uint32_t DISPLAY_ATTRIBUTES[] = {
     HWC_DISPLAY_HEIGHT,
     HWC_DISPLAY_DPI_X,
     HWC_DISPLAY_DPI_Y,
+    HWC_DISPLAY_FORMAT,
     HWC_DISPLAY_NO_ATTRIBUTE,
 };
 #define NUM_DISPLAY_ATTRIBUTES (sizeof(DISPLAY_ATTRIBUTES) / sizeof(DISPLAY_ATTRIBUTES)[0])
@@ -504,11 +506,16 @@ status_t HWComposer::queryDisplayProperties(int disp) {
             mDisplayData[disp].height = values[i];
             break;
         case HWC_DISPLAY_DPI_X:
-            mDisplayData[disp].xdpi = values[i] / 1000.0f;
+            //mDisplayData[disp].xdpi = values[i] / 1000.0f;
+	    mDisplayData[disp].xdpi = values[i];
             break;
         case HWC_DISPLAY_DPI_Y:
-            mDisplayData[disp].ydpi = values[i] / 1000.0f;
+            //mDisplayData[disp].ydpi = values[i] / 1000.0f;
+	    mDisplayData[disp].ydpi = values[i];
             break;
+	case HWC_DISPLAY_FORMAT:
+                    config.format = values[i];
+                     break;
         default:
             ALOG_ASSERT(false, "unknown display attribute[%d] %#x",
                     i, DISPLAY_ATTRIBUTES[i]);
@@ -517,7 +524,7 @@ status_t HWComposer::queryDisplayProperties(int disp) {
     }
 
     // FIXME: what should we set the format to?
-    mDisplayData[disp].format = HAL_PIXEL_FORMAT_RGBA_8888;
+    //mDisplayData[disp].format = HAL_PIXEL_FORMAT_RGBA_8888;
     mDisplayData[disp].connected = true;
     if (mDisplayData[disp].xdpi == 0.0f || mDisplayData[disp].ydpi == 0.0f) {
         float dpi = getDefaultDensity(h);
@@ -602,6 +609,20 @@ float HWComposer::getDpiY(int disp) const {
 
 bool HWComposer::isConnected(int disp) const {
     return mDisplayData[disp].connected;
+}
+
+void HWComposer::setEglSurface(int id, void* dpy, void* surface) {
+    if (uint32_t(id)>31 || !mAllocatedDisplayIDs.hasBit(id)) {
+        ALOGD("ignoring unallocated display ID ");
+        return;
+    }
+
+    if(surface == NULL || dpy == NULL){
+        ALOGD("Set the wrong egl parameter !");
+    }
+	
+    mDisplayData[id].list->dpy = dpy;
+    mDisplayData[id].list->sur = surface;
 }
 
 void HWComposer::eventControl(int disp, int event, int enabled) {
@@ -756,15 +777,15 @@ status_t HWComposer::prepare() {
         mLists[i] = disp.list;
         if (mLists[i]) {
             if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
-                mLists[i]->outbuf = disp.outbufHandle;
-                mLists[i]->outbufAcquireFenceFd = -1;
+                //mLists[i]->outbuf = disp.outbufHandle;
+                //mLists[i]->outbufAcquireFenceFd = -1;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
                 // garbage data to catch improper use
-                mLists[i]->dpy = (hwc_display_t)0xDEADBEEF;
-                mLists[i]->sur = (hwc_surface_t)0xDEADBEEF;
+                //mLists[i]->dpy = (hwc_display_t)0xDEADBEEF;
+                //mLists[i]->sur = (hwc_surface_t)0xDEADBEEF;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0)) {
-                mLists[i]->dpy = EGL_NO_DISPLAY;
-                mLists[i]->sur = EGL_NO_SURFACE;
+                //mLists[i]->dpy = EGL_NO_DISPLAY;
+                //mLists[i]->sur = EGL_NO_SURFACE;
             }
         }
     }
@@ -977,8 +998,9 @@ int HWComposer::getVisualID() const {
         // FIXME: temporary hack until HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED
         // is supported by the implementation. we can only be in this case
         // if we have HWC 1.1
-        return HAL_PIXEL_FORMAT_RGBA_8888;
+        //return HAL_PIXEL_FORMAT_RGBA_8888;
         //return HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
+	return mDisplayData[HWC_DISPLAY_PRIMARY].format;
     } else {
         return mFbDev->format;
     }
@@ -1444,7 +1466,8 @@ void HWComposer::dump(String8& result) const {
                             "BACKGROUND",
                             "FB TARGET",
                             "FB_BLIT",
-                            "UNKNOWN"};
+                            //"UNKNOWN"};
+			    "HWC_2D"};
                     if (type >= NELEM(compositionTypeName))
                         type = NELEM(compositionTypeName) - 1;
 

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// #define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 #include "VirtualDisplaySurface.h"
 #include "HWComposer.h"
 
@@ -361,6 +361,15 @@ status_t VirtualDisplaySurface::dequeueBuffer(int* pslot, sp<Fence>* fence, bool
         }
     }
     return result;
+}
+
+status_t VirtualDisplaySurface::detachBuffer(int slot) {
+    return mSource[SOURCE_SINK]->detachBuffer(slot);
+}
+
+status_t VirtualDisplaySurface::attachBuffer(int* outSlot,
+        const sp<GraphicBuffer>& buffer) {
+    return mSource[SOURCE_SINK]->attachBuffer(outSlot, buffer);
 }
 
 status_t VirtualDisplaySurface::queueBuffer(int pslot,

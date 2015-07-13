@@ -118,6 +118,11 @@ public:
     // is CLOCK_MONOTONIC.
     virtual status_t acquireBuffer(BufferItem *buffer, nsecs_t presentWhen) = 0;
 
+    virtual status_t detachBuffer(int slot) = 0;
+
+    virtual status_t attachBuffer(int *outSlot,
+            const sp<GraphicBuffer>& buffer) = 0;
+
     // releaseBuffer releases a buffer slot from the consumer back to the
     // BufferQueue.  This may be done while the buffer's contents are still
     // being accessed.  The fence will signal when the buffer is no longer

@@ -90,6 +90,11 @@ public:
     virtual status_t dequeueBuffer(int *slot, sp<Fence>* fence, bool async,
             uint32_t w, uint32_t h, uint32_t format, uint32_t usage) = 0;
 
+    virtual status_t detachBuffer(int slot) = 0;
+
+    virtual status_t attachBuffer(int* outSlot,
+            const sp<GraphicBuffer>& buffer) = 0;
+
     // queueBuffer indicates that the client has finished filling in the
     // contents of the buffer associated with slot and transfers ownership of
     // that slot back to the server. It is not valid to call queueBuffer on a
