@@ -608,6 +608,19 @@ bool HWComposer::isConnected(int disp) const {
     return mDisplayData[disp].connected;
 }
 
+void HWComposer::setEglSurface(int disp, void* dpy, void* surface) {
+    if (uint32_t(disp)>31 || !mAllocatedDisplayIDs.hasBit(disp)) {
+        ALOGD("ignoring unallocated display ID ");
+        return;
+    }
+
+    if(surface == NULL || dpy == NULL){
+        ALOGD("Set the wrong egl parameter !");
+    }
+    mDisplayData[disp].list->dpy = dpy;
+    mDisplayData[disp].list->sur = surface;
+}
+
 void HWComposer::eventControl(int disp, int event, int enabled) {
     if (uint32_t(disp)>31 || !mAllocatedDisplayIDs.hasBit(disp)) {
         ALOGD("eventControl ignoring event %d on unallocated disp %d (en=%d)",
@@ -711,6 +724,8 @@ status_t HWComposer::createWorkList(int32_t id, size_t numLayers) {
         }
         hwcFlags(mHwc, disp.list) = HWC_GEOMETRY_CHANGED;
         hwcNumHwLayers(mHwc, disp.list) = numLayers;
+	disp.list->dpy = EGL_NO_DISPLAY;
+        disp.list->sur = EGL_NO_SURFACE;
     }
     return NO_ERROR;
 }
@@ -760,12 +775,12 @@ status_t HWComposer::prepare() {
         mLists[i] = disp.list;
         if (mLists[i]) {
             if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_3)) {
-                mLists[i]->outbuf = disp.outbufHandle;
-                mLists[i]->outbufAcquireFenceFd = -1;
+                //mLists[i]->outbuf = disp.outbufHandle;
+                //mLists[i]->outbufAcquireFenceFd = -1;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_1)) {
                 // garbage data to catch improper use
-                mLists[i]->dpy = (hwc_display_t)0xDEADBEEF;
-                mLists[i]->sur = (hwc_surface_t)0xDEADBEEF;
+                //mLists[i]->dpy = (hwc_display_t)0xDEADBEEF;
+                //mLists[i]->sur = (hwc_surface_t)0xDEADBEEF;
             } else if (hwcHasApiVersion(mHwc, HWC_DEVICE_API_VERSION_1_0)) {
                 mLists[i]->dpy = EGL_NO_DISPLAY;
                 mLists[i]->sur = EGL_NO_SURFACE;

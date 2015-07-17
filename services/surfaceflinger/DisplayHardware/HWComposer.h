@@ -275,6 +275,7 @@ public:
     float getDpiY(int disp) const;
     bool isConnected(int disp) const;
 
+    void setEglSurface(int disp, void* dpy, void* surface);
     status_t setVirtualDisplayProperties(int32_t id, uint32_t w, uint32_t h,
             uint32_t format);
 
