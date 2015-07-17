@@ -115,6 +115,7 @@ DisplayDevice::DisplayDevice(
     // was created with createDisplay().
     switch (mType) {
         case DISPLAY_PRIMARY:
+	ALOGI("trace line %s:%d\n", __FILE__, __LINE__);
             char value[PROPERTY_VALUE_MAX];
             mDisplayName = "Built-in Screen";
 
@@ -123,9 +124,11 @@ DisplayDevice::DisplayDevice(
             mHardwareOrientation = atoi(value);
             break;
         case DISPLAY_EXTERNAL:
+	ALOGI("trace line %s:%d\n", __FILE__, __LINE__);
             mDisplayName = "HDMI Screen";
             break;
         default:
+	ALOGI("trace line %s:%d\n", __FILE__, __LINE__);
             mDisplayName = "Virtual Screen";    // e.g. Overlay #n
             break;
     }
@@ -135,6 +138,7 @@ DisplayDevice::DisplayDevice(
     property_get("persist.panel.orientation", property, "0");
     panelOrientation = atoi(property) / 90;
 
+	ALOGI("trace line %s:%d\n", __FILE__, __LINE__);
     // initialize the display orientation transform.
     setProjection(panelOrientation, mViewport, mFrame);
 }

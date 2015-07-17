@@ -58,6 +58,32 @@ bool LayerDim::isVisible() const {
 }
 
 
+void LayerDim::setGeometry(
+    const sp<const DisplayDevice>& hw,
+    HWComposer::HWCLayerInterface& layer)
+{
+    Layer::setGeometry(hw, layer);
+
+    // enable this layer
+    layer.setSkip(false);
+
+    // blending mode
+    layer.setBlending(HWC_BLENDING_DIM);
+
+    // set dim value
+    const State& s(drawingState());
+
+    if (isSecure() && !hw->isSecure()) {
+        layer.setSkip(true);
+    }
+}
+
+void LayerDim::setPerFrameData(const sp<const DisplayDevice>& hw,
+                               HWComposer::HWCLayerInterface& layer) {
+    Layer::setPerFrameData(hw, layer);
+    // leave it as it is for dim layer.
+}
+
 // ---------------------------------------------------------------------------
 
 }; // namespace android

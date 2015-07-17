@@ -87,14 +87,16 @@ protected:
 
 private:
     status_t mapfd(int fd, size_t size, uint32_t offset = 0);
+    status_t mapion(int fd, size_t size, uint32_t offset = 0);
 
-    int         mFD;
+    int         mFD; /* Heap ID (PMEM don't have real Heap ID) */
     size_t      mSize;
     void*       mBase;
     uint32_t    mFlags;
     const char* mDevice;
     bool        mNeedUnmap;
     uint32_t    mOffset;
+    int         mDevFd;
 };
 
 // ---------------------------------------------------------------------------

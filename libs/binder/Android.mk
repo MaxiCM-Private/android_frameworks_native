@@ -63,6 +63,7 @@ endif
 LOCAL_LDLIBS += -lpthread
 LOCAL_MODULE := libbinder
 LOCAL_SHARED_LIBRARIES += liblog libcutils libutils
+LOCAL_CFLAGS += -DUSE_ION
 LOCAL_SRC_FILES := $(sources)
 
 include $(BUILD_SHARED_LIBRARY)
@@ -83,6 +84,7 @@ endif
 LOCAL_LDLIBS += -lpthread
 LOCAL_MODULE := libbinder
 LOCAL_STATIC_LIBRARIES += libutils
+LOCAL_CFLAGS += -DUSE_ION
 LOCAL_SRC_FILES := $(sources)
 
 include $(BUILD_STATIC_LIBRARY)

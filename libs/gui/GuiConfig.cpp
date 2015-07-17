@@ -22,6 +22,15 @@ void appendGuiConfigString(String8& configStr)
 {
     static const char* config =
             " [libgui"
+#ifdef USE_FENCE_SYNC
+            " USE_FENCE_SYNC"
+#endif
+#ifdef USE_NATIVE_FENCE_SYNC
+            " USE_NATIVE_FENCE_SYNC"
+#endif
+#ifdef USE_WAIT_SYNC
+            " USE_WAIT_SYNC"
+#endif
 #ifdef DONT_USE_FENCE_SYNC
             " DONT_USE_FENCE_SYNC"
 #endif

@@ -32,6 +32,7 @@
 #include <utils/Log.h>
 #include <utils/Trace.h>
 #include <utils/CallStack.h>
+#include <hardware/gralloc.h>
 
 // Macros for including the BufferQueue name in log messages
 #define ST_LOGV(x, ...) ALOGV("[%s] "x, mConsumerName.string(), ##__VA_ARGS__)
@@ -314,6 +315,7 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>* outFence, bool async
             // look for a free buffer to give to the client
             found = INVALID_BUFFER_SLOT;
             int dequeuedCount = 0;
+	    int freeCount = 0;
             int acquiredCount = 0;
             for (int i = 0; i < maxBufferCount; i++) {
                 const int state = mSlots[i].mBufferState;
@@ -334,8 +336,17 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>* outFence, bool async
                                 mSlots[i].mFrameNumber < mSlots[found].mFrameNumber) {
                             found = i;
                         }
+			freeCount++;
                         break;
                 }
+            }
+	
+	    //we would alloc 4 buffers and set usage to GRALLOC_USAGE_PRIVATE_3
+            //under bypass mode.
+            if((usage & GRALLOC_USAGE_PRIVATE_3) &&
+                maxBufferCount == 4 && freeCount < 2
+              ){
+                return -EBUSY;
             }
 
             // clients are not allowed to dequeue more than one buffer
@@ -468,9 +479,9 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>* outFence, bool async
         eglDestroySyncKHR(dpy, eglFence);
     }
 
-    ST_LOGV("dequeueBuffer: returning slot=%d/%llu buf=%p flags=%#x", *outBuf,
+    ST_LOGV("dequeueBuffer: returning slot=%d/%llu buf=%p flags=%#x" handle->numfd=%d", *outBuf,
             mSlots[*outBuf].mFrameNumber,
-            mSlots[*outBuf].mGraphicBuffer->handle, returnFlags);
+            mSlots[*outBuf].mGraphicBuffer->handle, returnFlags, mSlots[*outBuf].mGraphicBuffer->handle->numFds);
 
     return returnFlags;
 }
