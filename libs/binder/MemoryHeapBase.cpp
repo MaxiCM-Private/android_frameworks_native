@@ -118,10 +118,10 @@ status_t MemoryHeapBase::mapion(int dev_fd, size_t size, uint32_t offset)
         if((mFlags & NO_CACHING) == 0){
             req_alloc.flags = ION_FLAG_CACHED | ION_FLAG_CACHED_NEEDS_SYNC;
         }
-        req_alloc.heap_id_mask = ION_HEAP_TYPE_DMA_MASK;
+        req_alloc.heap_id_mask = ION_HEAP_CARVEOUT_MASK;
        ret = ioctl(dev_fd, ION_IOC_ALLOC, &req_alloc);
         if (ret < 0) {
-            ALOGE("ION_IOC_ALLOC failed ret = %d : reason : %s",ret, strerror(errno));
+            ALOGE("ION_IOC_ALLOC failed ret = %d : reason : %s", ret, strerror(errno));
             goto out;
         }
         memset(&req_fd, 0, sizeof(struct ion_fd_data));
